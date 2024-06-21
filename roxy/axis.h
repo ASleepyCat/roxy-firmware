@@ -272,19 +272,6 @@ class AnalogAxis : public Axis {
 		uint32_t ch;
 		int8_t delta;
 
-		void sampleQe() {
-			const uint16_t qe_samples = 1000;
-
-			for (uint16_t sample = 0; sample < qe_samples; ++sample) {
-				count += get();
-			}
-
-			count /= qe_samples;
-
-		    delta = last_axis - count;
-			last_axis = count;
-		}
-
 	public:
 		AnalogAxis(ADC_t& a, uint32_t c) : adc(a), ch(c) {}
 		
@@ -302,23 +289,35 @@ class AnalogAxis : public Axis {
 			// Configure continuous capture on one channel.
 			adc.CFGR = (1 << 13) | (1 << 12) | (1 << 5); // CONT, OVRMOD, ALIGN
 			adc.SQR1 = (ch << 6);
-			// adc.SMPR1 = (7 << (ch * 3)); // 72 MHz / 64 / 614 = apx. 1.8 kHz
+			// For some reason this is broken, seems to do nothing and breaks QE2?
+			// adc.SMPR1 = (7 << (ch * 3)); // Max sample time (72 MHz / 64 / 614 = apx. 1.8 kHz)
 
 			// Enable ADC.
 			adc.CR |= 1 << 0; // ADEN
+			// Wait for ADC to get ready.
 			while(!(adc.ISR & (1 << 0))); // ADRDY
+			// Clear ADRDY flag.
 			adc.ISR = (1 << 0); // ADRDY
 
 			// Start conversion.
 			adc.CR |= 1 << 2; // ADSTART
 		}
-		
+
 		virtual uint32_t get() final {
-			return adc.DR >> 8;
+			const uint16_t qe_samples = 128;
+			uint32_t samples = 0;
+
+			for (uint16_t sample = 0; sample < qe_samples; ++sample) {
+				samples += adc.DR >> 8;
+			}
+
+			return samples / qe_samples;
 		}
 
-		virtual void process() {
-			sampleQe();
+		void process() {
+			count = get();
+			delta = last_axis - count;
+			last_axis = count;
 
 			if(delta > 0) {
 				dir_state = 1;
